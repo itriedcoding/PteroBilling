@@ -7,12 +7,13 @@ A fully custom, feature-rich billing panel for [Pterodactyl Panel](https://ptero
 ## Features
 
 - **Multiple Payment Methods**: Stripe (cards), PayPal, and credit-based system
+- **Setup Wizard**: Guided configuration for domain, payments, and Pterodactyl
+- **Custom Domain**: Full support for custom domains (billing.example.com)
 - **Beautiful UI**: Modern, responsive design with Tailwind CSS
 - **Admin Dashboard**: Full control over users, plans, invoices, and settings
 - **Pterodactyl Integration**: Automatic server provisioning via Pterodactyl API
 - **Credit System**: Users can add funds and use credits to purchase servers
 - **Invoice Management**: Automatic invoice generation and tracking
-- **Multi-Theme Support**: Customizable colors and themes
 - **API Access**: RESTful API with API key authentication
 - **Security First**: CSRF protection, rate limiting, security headers, XSS prevention
 - **One-Line Install**: Easy installation on Ubuntu, Debian, CentOS
@@ -21,7 +22,7 @@ A fully custom, feature-rich billing panel for [Pterodactyl Panel](https://ptero
 
 - PHP 8.1 or higher
 - MySQL/MariaDB 10.3+
-- Nginx or Apache
+- Nginx
 - Composer
 - Pterodactyl Panel (running)
 
@@ -40,8 +41,25 @@ A fully custom, feature-rich billing panel for [Pterodactyl Panel](https://ptero
 ### One-Line Install (Recommended)
 
 ```bash
-# Ubuntu/Debian
-curl -sL https://raw.githubusercontent.com/YOUR_USER/PteroBilling/main/scripts/install.sh | sudo bash
+# Clone the repository first
+sudo git clone https://github.com/itriedcoding/PteroBilling.git /var/www/pterobilling
+
+# Then run the installer
+curl -sL https://raw.githubusercontent.com/itriedcoding/PteroBilling/main/scripts/install.sh | sudo bash
+```
+
+### Ubuntu/Debian
+
+```bash
+sudo git clone https://github.com/itriedcoding/PteroBilling.git /var/www/pterobilling
+sudo bash /var/www/pterobilling/scripts/install-ubuntu.sh
+```
+
+### CentOS/RHEL
+
+```bash
+sudo git clone https://github.com/itriedcoding/PteroBilling.git /var/www/pterobilling
+sudo bash /var/www/pterobilling/scripts/install-centos.sh
 ```
 
 ### Manual Install
@@ -49,7 +67,7 @@ curl -sL https://raw.githubusercontent.com/YOUR_USER/PteroBilling/main/scripts/i
 1. **Clone the repository**
    ```bash
    sudo mkdir -p /var/www/pterobilling
-   sudo git clone https://github.com/YOUR_USER/PteroBilling.git /var/www/pterobilling
+   sudo git clone https://github.com/itriedcoding/PteroBilling.git /var/www/pterobilling
    cd /var/www/pterobilling
    ```
 
@@ -96,10 +114,60 @@ curl -sL https://raw.githubusercontent.com/YOUR_USER/PteroBilling/main/scripts/i
    }
    ```
 
-7. **Create admin user**
+7. **Set up SSL**
    ```bash
-   sudo bash scripts/setup-admin.sh
+   sudo certbot --nginx -d billing.example.com
    ```
+
+8. **Visit your panel** and the Setup Wizard will guide you through the rest!
+
+## Setup Wizard
+
+After installation, visit your panel URL. The Setup Wizard will automatically appear and guide you through:
+
+### Step 1: Domain & General
+- Site name
+- Panel URL (your custom domain)
+- Custom domain configuration
+- DNS instructions
+
+### Step 2: Pterodactyl Connection
+- Panel URL
+- Application API Key
+- Connection test
+
+### Step 3: Stripe Configuration
+- Secret Key
+- Publishable Key
+- Webhook Signing Secret
+- Webhook URL and events
+
+### Step 4: PayPal Configuration
+- Client ID
+- Client Secret
+- Mode (Sandbox/Live)
+- Webhook URL and events
+
+### Step 5: Complete
+- Summary and next steps
+
+## Custom Domain Setup
+
+To use a custom domain like `billing.example.com`:
+
+1. **Add DNS Record**: Create an A record for `billing.example.com` pointing to your server's IP
+2. **Wait for propagation**: DNS changes can take up to 48 hours
+3. **Run the installer** or configure nginx manually
+4. **Set up SSL**:
+   ```bash
+   sudo certbot --nginx -d billing.example.com
+   ```
+5. **Update .env**:
+   ```
+   APP_URL=https://billing.example.com
+   APP_DOMAIN=billing.example.com
+   ```
+6. **Or use the Admin Settings** to update domain settings through the UI
 
 ## Configuration
 
@@ -108,7 +176,8 @@ curl -sL https://raw.githubusercontent.com/YOUR_USER/PteroBilling/main/scripts/i
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `APP_NAME` | Panel name | PteroBilling |
-| `APP_URL` | Panel URL | http://localhost |
+| `APP_URL` | Full panel URL | http://localhost |
+| `APP_DOMAIN` | Custom domain | localhost |
 | `APP_KEY` | Encryption key | (auto-generated) |
 | `DB_HOST` | Database host | localhost |
 | `DB_DATABASE` | Database name | pterobilling |
@@ -121,51 +190,57 @@ curl -sL https://raw.githubusercontent.com/YOUR_USER/PteroBilling/main/scripts/i
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook secret | - |
 | `PAYPAL_CLIENT_ID` | PayPal client ID | - |
 | `PAYPAL_CLIENT_SECRET` | PayPal client secret | - |
+| `PAYPAL_MODE` | PayPal mode (live/sandbox) | live |
+
+### Admin Panel Settings
+
+Navigate to **Admin > Settings** to configure:
+
+- **General & Domain**: Site name, URL, custom domain, currency, deposit limits
+- **Payments**: Enable/disable Stripe, PayPal, and credits; API keys
+- **Pterodactyl**: Panel URL and API key with connection test
+- **Mail**: SMTP configuration for notifications
 
 ### Pterodactyl API Key
 
 1. Login to your Pterodactyl Panel admin
 2. Go to **Admin** > **Application** > **API Credentials**
 3. Create a new key with full permissions
-4. Copy the key to `PTERODACTYL_API_KEY` in `.env`
+4. Copy the key (starts with `ptla_`)
 
 ### Stripe Setup
 
 1. Create a [Stripe account](https://stripe.com)
-2. Get your API keys from the [Stripe Dashboard](https://dashboard.stripe.com/apikeys)
-3. Set `STRIPE_KEY` (secret key) and `STRIPE_PUBLIC_KEY` (publishable key)
-4. Create a webhook endpoint:
-   - URL: `https://billing.example.com/api/v1/payment/stripe`
+2. Get API keys from [Stripe Dashboard](https://dashboard.stripe.com/apikeys)
+3. Create webhook endpoint:
+   - URL: `https://your-domain.com/api/v1/payment/stripe`
    - Events: `checkout.session.completed`, `invoice.payment_succeeded`, `payment_intent.succeeded`
-5. Copy the webhook signing secret to `STRIPE_WEBHOOK_SECRET`
+4. Copy the webhook signing secret
 
 ### PayPal Setup
 
 1. Create a [PayPal Developer account](https://developer.paypal.com)
-2. Create an app in the [PayPal Dashboard](https://developer.paypal.com/dashboard/applications)
-3. Set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`
-4. Set `PAYPAL_MODE` to `live` for production
-5. Set up webhook:
-   - URL: `https://billing.example.com/api/v1/payment/paypal`
-   - Events: `PAYMENT.CAPTURE.COMPLETED`
+2. Create an app in [PayPal Dashboard](https://developer.paypal.com/dashboard/applications)
+3. Set Client ID and Secret
+4. Create webhook:
+   - URL: `https://your-domain.com/api/v1/payment/paypal`
+   - Event: `PAYMENT.CAPTURE.COMPLETED`
 
 ## Creating Plans
 
 1. Login as admin
 2. Go to **Admin** > **Plans** > **Create Plan**
-3. Fill in plan details:
-   - **Name**: Plan display name
+3. Fill in:
+   - **Name**: Display name
    - **Price**: Monthly price in USD
-   - **CPU**: CPU limit (percentage)
-   - **Memory**: RAM in MB
-   - **Disk**: Disk space in MB
-   - **Nest/Egg ID**: Pterodactyl nest and egg IDs
+   - **CPU**: CPU limit (%)
+   - **Memory**: RAM (MB)
+   - **Disk**: Disk space (MB)
+   - **Nest/Egg ID**: Pterodactyl resource IDs
 
 ## API Documentation
 
 ### Authentication
-
-All API requests require an API key in the header:
 
 ```
 X-API-Key: your_api_key_here
@@ -211,10 +286,9 @@ pterobilling/
 ├── database/
 │   └── migrations/        # Database migrations
 ├── public/                # Web root
-│   ├── css/               # Stylesheets
-│   └── js/                # JavaScript
 ├── resources/
 │   └── views/             # PHP templates
+│       ├── setup/         # Setup wizard
 │       ├── admin/         # Admin views
 │       ├── auth/          # Authentication views
 │       ├── client/        # Client views
@@ -247,14 +321,18 @@ sudo chmod -R 775 /var/www/pterobilling/storage
 
 ### Database Connection Issues
 1. Check `.env` database credentials
-2. Verify MySQL/MariaDB is running
-3. Check user permissions: `mysql -u root -e "SHOW GRANTS FOR 'pterobilling'@'localhost';"`
+2. Verify MySQL/MariaDB is running: `sudo systemctl status mariadb`
+3. Check permissions: `mysql -u root -e "SHOW GRANTS FOR 'pterobilling'@'localhost';"`
 
 ### Webhook Not Working
-1. Verify webhook URL is correct
+1. Verify webhook URL in payment provider dashboard
 2. Check webhook secret matches `.env`
-3. Check `storage/logs/app.log` for errors
-4. Test with Stripe CLI: `stripe listen --forward-to https://billing.example.com/api/v1/payment/stripe`
+3. Check logs: `cat storage/logs/app.log`
+4. Test with Stripe CLI: `stripe listen --forward-to https://your-domain.com/api/v1/payment/stripe`
+
+### Setup Wizard Not Appearing
+- The wizard only appears if `PTERODACTYL_API_KEY` is not configured
+- If stuck, manually set the API key in `.env` and the wizard will skip
 
 ## Contributing
 
@@ -270,9 +348,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- **Documentation**: [GitHub Wiki](https://github.com/YOUR_USER/PteroBilling/wiki)
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USER/PteroBilling/issues)
-- **Discord**: [Join our Discord](https://discord.gg/example)
+- **Issues**: [GitHub Issues](https://github.com/itriedcoding/PteroBilling/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/itriedcoding/PteroBilling/discussions)
 
 ---
 

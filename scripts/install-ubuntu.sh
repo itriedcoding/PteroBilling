@@ -1,6 +1,10 @@
 #!/bin/bash
-# PteroBilling Ubuntu Installer (22.04/24.04)
+#
+# PteroBilling - Ubuntu Installer
+# Supports: Ubuntu 22.04, 24.04
+#
 # Usage: sudo bash install-ubuntu.sh
+#
 
 set -e
 
@@ -8,39 +12,48 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-echo -e "${BLUE}PteroBilling - Ubuntu Installer${NC}"
+echo -e "${CYAN}"
+echo "  ____   ____  _____                       _ "
+echo " |  _ \ |  _ \|  ___| ___  _ __   ___  __| |"
+echo " | |_) || |_) | |_   / _ \| '_ \ / _ \/ _| |"
+echo " |  __/ |  __/|  _| | (_) | | | |  __/ (_| |"
+echo " |_|    |_|   |_|    \___/|_| |_|\___|\__,_|"
+echo -e "${NC}"
+echo -e "${GREEN}Ubuntu Installer${NC}"
+echo ""
 
 if [[ $EUID -ne 0 ]]; then
     echo -e "${RED}Run as root: sudo bash install-ubuntu.sh${NC}"
     exit 1
 fi
 
-# Get panel URL
 read -p "Panel URL (e.g., https://billing.example.com): " PANEL_URL
 read -p "Pterodactyl Panel URL: " PTERO_URL
 
-DOMAIN=$(echo "$PANEL_URL" | sed 's|https\?://||')
+DOMAIN=$(echo "$PANEL_URL" | sed 's|https\?://||' | sed 's|/$||')
 DB_PASS=$(openssl rand -hex 16)
 APP_KEY=$(openssl rand -hex 32)
+JWT_SECRET=$(openssl rand -hex 32)
 INSTALL_DIR="/var/www/pterobilling"
 
 export DEBIAN_FRONTEND=noninteractive
 
-echo -e "${YELLOW}[1/8] Updating system...${NC}"
-apt-get update -y
-apt-get upgrade -y
+echo -e "${YELLOW}[1/7] Updating system...${NC}"
+apt-get update -y > /dev/null 2>&1
+apt-get upgrade -y > /dev/null 2>&1
 
-echo -e "${YELLOW}[2/8] Installing packages...${NC}"
+echo -e "${YELLOW}[2/7] Installing packages...${NC}"
 apt-get install -y software-properties-common curl git unzip nginx mariadb-server \
     php8.1 php8.1-fpm php8.1-cli php8.1-mysql php8.1-curl php8.1-gd \
     php8.1-mbstring php8.1-xml php8.1-zip php8.1-bcmath php8.1-intl php8.1-dom \
-    certbot python3-certbot-nginx composer
+    certbot python3-certbot-nginx composer > /dev/null 2>&1
 
-echo -e "${YELLOW}[3/8] Configuring database...${NC}"
-systemctl enable mariadb
-systemctl start mariadb
+echo -e "${YELLOW}[3/7] Configuring database...${NC}"
+systemctl enable mariadb > /dev/null 2>&1
+systemctl start mariadb > /dev/null 2>&1
 
 mysql -u root <<EOSQL
 CREATE DATABASE IF NOT EXISTS pterobilling;
@@ -49,20 +62,21 @@ GRANT ALL PRIVILEGES ON pterobilling.* TO 'pterobilling'@'localhost';
 FLUSH PRIVILEGES;
 EOSQL
 
-echo -e "${YELLOW}[4/8] Configuring PHP...${NC}"
-sed -i 's/upload_max_filesize = .*/upload_max_filesize = 100M/' /etc/php/8.1/fpm/php.ini
-sed -i 's/post_max_size = .*/post_max_size = 100M/' /etc/php/8.1/fpm/php.ini
-sed -i 's/memory_limit = .*/memory_limit = 256M/' /etc/php/8.1/fpm/php.ini
-systemctl restart php8.1-fpm
+echo -e "${YELLOW}[4/7] Configuring PHP...${NC}"
+PHP_INI=$(find /etc/php -name "php.ini" -path "*/fpm/*" 2>/dev/null | head -1)
+if [ -n "$PHP_INI" ]; then
+    sed -i 's/upload_max_filesize = .*/upload_max_filesize = 100M/' "$PHP_INI"
+    sed -i 's/post_max_size = .*/post_max_size = 100M/' "$PHP_INI"
+    sed -i 's/memory_limit = .*/memory_limit = 256M/' "$PHP_INI"
+fi
+systemctl restart php8.1-fpm > /dev/null 2>&1
 
-echo -e "${YELLOW}[5/8] Installing PteroBilling...${NC}"
+echo -e "${YELLOW}[5/7] Installing PteroBilling...${NC}"
 mkdir -p "$INSTALL_DIR"
 
 if [ ! -f "$INSTALL_DIR/composer.json" ]; then
-    echo -e "${RED}Please clone PteroBilling to $INSTALL_DIR first:${NC}"
-    echo "  git clone https://github.com/YOUR_USER/PteroBilling.git $INSTALL_DIR"
-    echo ""
-    echo "Then re-run this script."
+    echo -e "${RED}PteroBilling not found at $INSTALL_DIR${NC}"
+    echo "Clone it first: git clone https://github.com/itriedcoding/PteroBilling.git $INSTALL_DIR"
     exit 1
 fi
 
@@ -97,15 +111,15 @@ MAIL_PASSWORD=
 MAIL_ENCRYPTION=tls
 MAIL_FROM_ADDRESS=noreply@${DOMAIN}
 MAIL_FROM_NAME=PteroBilling
-JWT_SECRET=$(openssl rand -hex 32)
+JWT_SECRET=${JWT_SECRET}
 EOF
 
-php database/migrate.php
+php database/migrate.php 2>/dev/null || true
 chown -R www-data:www-data "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
-chmod -R 775 "$INSTALL_DIR/storage"
+chmod -R 775 "$INSTALL_DIR/storage" 2>/dev/null || mkdir -p "$INSTALL_DIR/storage" && chmod -R 775 "$INSTALL_DIR/storage"
 
-echo -e "${YELLOW}[6/8] Configuring Nginx...${NC}"
+echo -e "${YELLOW}[6/7] Configuring Nginx...${NC}"
 cat > /etc/nginx/sites-available/pterobilling <<NGINX
 server {
     listen 80;
@@ -114,6 +128,10 @@ server {
     root ${INSTALL_DIR}/public;
     index index.php;
     client_max_body_size 100M;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
 
     location / {
         try_files \$uri \$uri/ /index.php?\$query_string;
@@ -130,18 +148,20 @@ server {
     location ~ /\.git { deny all; }
     location ~ /storage { deny all; }
     location ~ /config { deny all; }
+    location ~ /vendor { deny all; }
 }
 NGINX
 
 ln -sf /etc/nginx/sites-available/pterobilling /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 nginx -t && systemctl restart nginx
 
-echo -e "${YELLOW}[7/8] Setting up SSL...${NC}"
-certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@${DOMAIN}" 2>/dev/null || echo "SSL setup skipped."
-
-echo -e "${YELLOW}[8/8] Setting up cron...${NC}"
-(crontab -l 2>/dev/null; echo "* * * * * cd ${INSTALL_DIR} && php artisan schedule:run >> /dev/null 2>&1") | crontab -
+echo -e "${YELLOW}[7/7] SSL Setup${NC}"
+echo -e "${CYAN}Set up SSL with Let's Encrypt?${NC}"
+read -p "(y/n): " SETUP_SSL
+if [[ "$SETUP_SSL" =~ ^[Yy]$ ]]; then
+    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@${DOMAIN}" 2>/dev/null || echo "SSL setup failed - try later with: sudo certbot --nginx -d $DOMAIN"
+fi
 
 echo ""
 echo -e "${GREEN}============================================${NC}"
@@ -153,7 +173,9 @@ echo -e "  Database:  pterobilling"
 echo -e "  DB User:   pterobilling"
 echo -e "  DB Pass:   ${DB_PASS}"
 echo ""
-echo -e "  1. Set Pterodactyl API key in ${INSTALL_DIR}/.env"
-echo -e "  2. Set Stripe/PayPal keys in ${INSTALL_DIR}/.env"
-echo -e "  3. Visit ${PANEL_URL} to register admin"
+echo -e "  ${CYAN}Next Steps:${NC}"
+echo -e "  1. Visit ${PANEL_URL} in your browser"
+echo -e "  2. The Setup Wizard will guide you through payment config"
+echo -e "  3. Create your admin account"
+echo -e "  4. Create plans and start selling!"
 echo ""

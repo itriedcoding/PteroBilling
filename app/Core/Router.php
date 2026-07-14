@@ -8,6 +8,7 @@ use App\Controllers\HomeController;
 use App\Controllers\AuthController;
 use App\Controllers\BillingController;
 use App\Controllers\ServerController;
+use App\Controllers\SetupController;
 use App\Controllers\Admin\DashboardController;
 use App\Controllers\Admin\PlanController;
 use App\Controllers\Admin\UserController;
@@ -23,6 +24,13 @@ class Router
     {
         $app->get('/', [HomeController::class, 'index'])->setName('home');
         $app->get('/status', [HomeController::class, 'status'])->setName('status');
+
+        $app->group('/setup', function ($group) {
+            $group->get('', [SetupController::class, 'index'])->setName('setup.index');
+            $group->post('/{step}', [SetupController::class, 'step']);
+            $group->post('/complete', [SetupController::class, 'complete']);
+            $group->post('/check-api', [SetupController::class, 'checkApi']);
+        });
 
         $app->group('/auth', function ($group) {
             $group->get('/login', [AuthController::class, 'showLogin'])->setName('auth.login');
@@ -40,7 +48,7 @@ class Router
             $group->get('', [BillingController::class, 'index'])->setName('billing.index');
             $group->get('/add-funds', [BillingController::class, 'addFunds'])->setName('billing.addFunds');
             $group->post('/add-funds', [BillingController::class, 'processAddFunds']);
-            $group->get('/ invoices', [BillingController::class, 'invoices'])->setName('billing.invoices');
+            $group->get('/invoices', [BillingController::class, 'invoices'])->setName('billing.invoices');
             $group->get('/invoice/{id}', [BillingController::class, 'invoice'])->setName('billing.invoice');
             $group->get('/payment-methods', [BillingController::class, 'paymentMethods'])->setName('billing.paymentMethods');
             $group->post('/payment-methods', [BillingController::class, 'addPaymentMethod']);
