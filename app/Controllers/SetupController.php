@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Session;
-use App\Core\Database;
 
 class SetupController
 {
@@ -46,7 +45,7 @@ class SetupController
         }
         $this->session->set('setup_data', $stepData);
 
-        if ($step === 5) {
+        if ($step === 6) {
             return $this->completeSetup($request, $response);
         }
 
@@ -66,31 +65,26 @@ class SetupController
         $this->writeSettingsFile($data);
 
         $this->session->set('setup_complete', true);
-
         $this->session->remove('setup_step');
         $this->session->remove('setup_data');
 
-        $this->session->flash('success', 'Setup complete! Welcome to PteroBilling.');
-        return $response->withHeader('Location', '/auth/login')->withStatus(302);
+        return $response->withHeader('Location', '/setup/6')->withStatus(302);
     }
 
     private function writeEnvFile(array $data): void
     {
         $envFile = __DIR__ . '/../../.env';
-        $existingEnv = [];
+        $existing = [];
         if (file_exists($envFile)) {
             $lines = file($envFile, FILE_IGNORE_NEW_LINES);
             foreach ($lines as $line) {
                 if (strpos($line, '#') === 0 || strpos($line, '=') === false) continue;
                 list($key) = explode('=', $line, 2);
-                $existingEnv[trim($key)] = true;
+                $existing[trim($key)] = true;
             }
         }
 
-        $envLines = [];
-        if (file_exists($envFile)) {
-            $envLines = file($envFile, FILE_IGNORE_NEW_LINES);
-        }
+        $envLines = file_exists($envFile) ? file($envFile, FILE_IGNORE_NEW_LINES) : [];
 
         $newVars = [
             'APP_URL' => $data['panel_url'] ?? ($_ENV['APP_URL'] ?? ''),
@@ -103,32 +97,24 @@ class SetupController
             'PAYPAL_CLIENT_ID' => $data['paypal_client_id'] ?? ($_ENV['PAYPAL_CLIENT_ID'] ?? ''),
             'PAYPAL_CLIENT_SECRET' => $data['paypal_secret'] ?? ($_ENV['PAYPAL_CLIENT_SECRET'] ?? ''),
             'PAYPAL_MODE' => $data['paypal_mode'] ?? ($_ENV['PAYPAL_MODE'] ?? 'live'),
-            'MAIL_HOST' => $data['mail_host'] ?? ($_ENV['MAIL_HOST'] ?? ''),
-            'MAIL_PORT' => $data['mail_port'] ?? ($_ENV['MAIL_PORT'] ?? '587'),
-            'MAIL_USERNAME' => $data['mail_username'] ?? ($_ENV['MAIL_USERNAME'] ?? ''),
-            'MAIL_PASSWORD' => $data['mail_password'] ?? ($_ENV['MAIL_PASSWORD'] ?? ''),
-            'MAIL_FROM_ADDRESS' => $data['mail_from'] ?? ($_ENV['MAIL_FROM_ADDRESS'] ?? ''),
         ];
 
         $output = [];
         foreach ($envLines as $line) {
             $trimmed = trim($line);
-            if (strpos($trimmed, '=') === false) {
-                $output[] = $line;
-                continue;
-            }
+            if (strpos($trimmed, '=') === false) { $output[] = $line; continue; }
             list($key) = explode('=', $trimmed, 2);
-            $key = trim($key);
-            if (isset($newVars[$key]) && !empty($newVars[$key])) {
-                $output[] = $key . '=' . $newVars[$key];
-                unset($newVars[$key]);
+            $envKey = trim($key);
+            if (isset($newVars[$envKey]) && !empty($newVars[$envKey])) {
+                $output[] = $envKey . '=' . $newVars[$envKey];
+                unset($newVars[$envKey]);
             } else {
                 $output[] = $line;
             }
         }
 
         foreach ($newVars as $key => $value) {
-            if (!empty($value) && !isset($existingEnv[$key])) {
+            if (!empty($value) && !isset($existing[$key])) {
                 $output[] = $key . '=' . $value;
             }
         }
@@ -148,8 +134,19 @@ class SetupController
         $settings['site_url'] = $data['panel_url'] ?? $settings['site_url'] ?? '';
         $settings['custom_domain'] = $data['panel_domain'] ?? $settings['custom_domain'] ?? '';
         $settings['stripe_enabled'] = !empty($data['stripe_secret']);
+        $settings['stripe_secret'] = $data['stripe_secret'] ?? $settings['stripe_secret'] ?? '';
+        $settings['stripe_public'] = $data['stripe_public'] ?? $settings['stripe_public'] ?? '';
+        $settings['stripe_webhook_secret'] = $data['stripe_webhook'] ?? $settings['stripe_webhook_secret'] ?? '';
         $settings['paypal_enabled'] = !empty($data['paypal_client_id']);
+        $settings['paypal_client_id'] = $data['paypal_client_id'] ?? $settings['paypal_client_id'] ?? '';
+        $settings['paypal_client_secret'] = $data['paypal_secret'] ?? $settings['paypal_client_secret'] ?? '';
+        $settings['paypal_mode'] = $data['paypal_mode'] ?? $settings['paypal_mode'] ?? 'live';
         $settings['credits_enabled'] = true;
+        $settings['min_deposit'] = (float)($data['min_deposit'] ?? $settings['min_deposit'] ?? 1.00);
+        $settings['max_deposit'] = (float)($data['max_deposit'] ?? $settings['max_deposit'] ?? 1000.00);
+        $settings['currency'] = $data['currency'] ?? $settings['currency'] ?? 'USD';
+        $settings['ptero_url'] = $data['ptero_url'] ?? $settings['ptero_url'] ?? '';
+        $settings['ptero_api_key'] = $data['ptero_api_key'] ?? $settings['ptero_api_key'] ?? '';
 
         file_put_contents($settingsFile, '<?php return ' . var_export($settings, true) . ";\n");
     }
@@ -167,10 +164,7 @@ class SetupController
         $ch = curl_init(rtrim($url, '/') . '/api/application/users');
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Bearer ' . $key,
-                'Accept: application/json',
-            ],
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $key, 'Accept: application/json'],
             CURLOPT_TIMEOUT => 10,
             CURLOPT_SSL_VERIFYPEER => true,
         ]);
@@ -185,23 +179,22 @@ class SetupController
         }
 
         if ($httpCode === 200) {
-            return $response->withJson(['success' => true, 'message' => 'Connected successfully!']);
+            $data = json_decode($result, true);
+            $userCount = count($data['data'] ?? []);
+            return $response->withJson(['success' => true, 'message' => "Connected! Found {$userCount} users in Pterodactyl."]);
         }
 
-        return $response->withJson(['success' => false, 'message' => 'API returned status ' . $httpCode . '. Check your API key.']);
+        return $response->withJson(['success' => false, 'message' => 'API returned status ' . $httpCode . '. Check your key.']);
     }
 
     private function isSetupComplete(): bool
     {
         $envFile = __DIR__ . '/../../.env';
         if (!file_exists($envFile)) return false;
-
         $env = file_get_contents($envFile);
-        if (strpos($env, 'PTERODACTYL_API_KEY=') !== false) {
-            preg_match('/PTERODACTYL_API_KEY=(.+)/', $env, $matches);
-            if (!empty($matches[1]) && trim($matches[1]) !== 'change-this-to-your-ptero-api-key' && trim($matches[1]) !== '') {
-                return true;
-            }
+        if (preg_match('/PTERODACTYL_API_KEY=(.+)/', $env, $matches)) {
+            $key = trim($matches[1]);
+            return !empty($key) && $key !== 'change-this-to-your-ptero-api-key';
         }
         return false;
     }

@@ -140,4 +140,26 @@ return function (Connection $conn) {
             $table->addIndex(['user_id']);
         });
     }
+
+    if (!$schema->tablesExist(['pterodactyl_nodes'])) {
+        $schema->createTable('pterodactyl_nodes', function ($table) {
+            $table->addColumn('id', 'integer', ['autoincrement' => true]);
+            $table->addColumn('name', 'string', ['length' => 255]);
+            $table->addColumn('fqdn', 'string', ['length' => 255]);
+            $table->addColumn('memory', 'integer', ['default' => 0]);
+            $table->addColumn('disk', 'integer', ['default' => 0]);
+            $table->addColumn('created_at', 'datetime');
+            $table->setPrimaryKey(['id']);
+        });
+    }
+
+    if (!$schema->tablesExist(['pterodactyl_nests'])) {
+        $schema->createTable('pterodactyl_nests', function ($table) {
+            $table->addColumn('id', 'integer', ['autoincrement' => true]);
+            $table->addColumn('name', 'string', ['length' => 255]);
+            $table->addColumn('description', 'text', ['notnull' => false]);
+            $table->addColumn('created_at', 'datetime');
+            $table->setPrimaryKey(['id']);
+        });
+    }
 };

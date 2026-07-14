@@ -13,10 +13,23 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 PANEL_URL=""
 PTERO_URL=""
+PTERO_KEY=""
+ENABLE_STRIPE="n"
+STRIPE_SECRET=""
+STRIPE_PUBLIC=""
+STRIPE_WEBHOOK=""
+ENABLE_PAYPAL="n"
+PAYPAL_ID=""
+PAYPAL_SECRET=""
+PAYPAL_MODE="live"
+ENABLE_CREDITS="y"
+MIN_DEPOSIT="1"
+MAX_DEPOSIT="1000"
 DB_NAME="pterobilling"
 DB_USER="pterobilling"
 DB_PASS=""
@@ -32,6 +45,7 @@ print_banner() {
     echo " |_|    |_|   |_|    \___/|_| |_|\___|\__,_|"
     echo -e "${NC}"
     echo -e "  ${GREEN}Game Server Billing Panel for Pterodactyl${NC}"
+    echo -e "  ${BLUE}https://github.com/itriedcoding/PteroBilling${NC}"
     echo ""
 }
 
@@ -53,15 +67,11 @@ detect_os() {
         exit 1
     fi
 
-    echo -e "${BLUE}[INFO] Detected: ${OS} ${OS_VERSION}${NC}"
+    echo -e "${BLUE}[INFO] Detected OS: ${OS} ${OS_VERSION}${NC}"
 
     case $OS in
-        ubuntu|debian)
-            PKG_MANAGER="apt"
-            ;;
-        centos|almalinux|rocky|rhel|fedora)
-            PKG_MANAGER="yum"
-            ;;
+        ubuntu|debian) PKG_MANAGER="apt" ;;
+        centos|almalinux|rocky|rhel|fedora) PKG_MANAGER="yum" ;;
         *)
             echo -e "${RED}[ERROR] Unsupported OS: ${OS}${NC}"
             echo -e "Supported: Ubuntu 22.04/24.04, Debian 11/12, CentOS 7/8/9, AlmaLinux, Rocky Linux"
@@ -70,8 +80,131 @@ detect_os() {
     esac
 }
 
+collect_information() {
+    echo ""
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${CYAN}  PteroBilling Installation Setup${NC}"
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+
+    echo -e "${BOLD}${YELLOW}[Step 1/4] Panel Configuration${NC}"
+    echo -e "${BLUE}─────────────────────────────────────────────────────────${NC}"
+    read -p "  Panel URL (e.g., https://billing.example.com): " PANEL_URL
+    read -p "  Pterodactyl Panel URL (e.g., https://panel.example.com): " PTERO_URL
+
+    if [ -z "$PANEL_URL" ] || [ -z "$PTERO_URL" ]; then
+        echo -e "${RED}[ERROR] Panel URL and Pterodactyl URL are required.${NC}"
+        exit 1
+    fi
+
+    echo ""
+    echo -e "${BOLD}${YELLOW}[Step 2/4] Pterodactyl API Key${NC}"
+    echo -e "${BLUE}─────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${CYAN}Where to find it:${NC}"
+    echo -e "  1. Login to your Pterodactyl Panel as admin"
+    echo -e "  2. Go to ${BOLD}Admin > Application > API Credentials${NC}"
+    echo -e "  3. Click ${BOLD}Create New${NC}, give it a name, select all permissions"
+    echo -e "  4. Copy the key (starts with ${BOLD}ptla_${NC})"
+    echo ""
+    read -p "  Pterodactyl API Key: " PTERO_KEY
+
+    if [ -z "$PTERO_KEY" ]; then
+        echo -e "${RED}[ERROR] Pterodactyl API Key is required.${NC}"
+        echo -e "You can skip this for now by entering a placeholder and update it later."
+        exit 1
+    fi
+
+    echo ""
+    echo -e "${BOLD}${YELLOW}[Step 3/4] Payment Methods${NC}"
+    echo -e "${BLUE}─────────────────────────────────────────────────────────${NC}"
+    echo -e "  Choose which payment methods to enable:"
+    echo ""
+
+    echo -e "  ${GREEN}[1]${NC} Stripe (Credit/Debit Cards)"
+    read -p "      Enable Stripe? (y/n): " ENABLE_STRIPE
+
+    if [[ "$ENABLE_STRIPE" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "      ${CYAN}Get your keys from: https://dashboard.stripe.com/apikeys${NC}"
+        read -p "      Stripe Secret Key (sk_live_...): " STRIPE_SECRET
+        read -p "      Stripe Publishable Key (pk_live_...): " STRIPE_PUBLIC
+        read -p "      Stripe Webhook Secret (whsec_...): " STRIPE_WEBHOOK
+        echo -e "      ${CYAN}Webhook URL: ${PANEL_URL}/api/v1/payment/stripe${NC}"
+        echo -e "      ${CYAN}Events: checkout.session.completed, invoice.payment_succeeded, payment_intent.succeeded${NC}"
+    fi
+
+    echo ""
+    echo -e "  ${GREEN}[2]${NC} PayPal"
+    read -p "      Enable PayPal? (y/n): " ENABLE_PAYPAL
+
+    if [[ "$ENABLE_PAYPAL" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "      ${CYAN}Get your credentials from: https://developer.paypal.com/dashboard/applications${NC}"
+        read -p "      PayPal Client ID: " PAYPAL_ID
+        read -p "      PayPal Client Secret: " PAYPAL_SECRET
+        read -p "      Mode (sandbox/live) [live]: " PAYPAL_MODE
+        PAYPAL_MODE=${PAYPAL_MODE:-live}
+        echo -e "      ${CYAN}Webhook URL: ${PANEL_URL}/api/v1/payment/paypal${NC}"
+        echo -e "      ${CYAN}Event: PAYMENT.CAPTURE.COMPLETED${NC}"
+    fi
+
+    echo ""
+    echo -e "  ${GREEN}[3]${NC} Credit System (Built-in)"
+    read -p "      Enable Credit System? (Y/n): " ENABLE_CREDITS
+    ENABLE_CREDITS=${ENABLE_CREDITS:-y}
+
+    if [[ "$ENABLE_CREDITS" =~ ^[Yy]$ ]]; then
+        ENABLE_CREDITS="y"
+        read -p "      Minimum deposit amount ($) [1]: " MIN_DEPOSIT
+        MIN_DEPOSIT=${MIN_DEPOSIT:-1}
+        read -p "      Maximum deposit amount ($) [1000]: " MAX_DEPOSIT
+        MAX_DEPOSIT=${MAX_DEPOSIT:-1000}
+    else
+        ENABLE_CREDITS="n"
+    fi
+
+    echo ""
+    echo -e "${BOLD}${YELLOW}[Step 4/4] SSL Configuration${NC}"
+    echo -e "${BLUE}─────────────────────────────────────────────────────────${NC}"
+    read -p "  Set up SSL with Let's Encrypt? (y/n): " SETUP_SSL
+
+    print_summary_before_install
+}
+
+print_summary_before_install() {
+    DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')
+
+    echo ""
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${CYAN}  Installation Summary${NC}"
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  ${BOLD}Panel URL:${NC}          ${PANEL_URL}"
+    echo -e "  ${BOLD}Domain:${NC}             ${DOMAIN}"
+    echo -e "  ${BOLD}Pterodactyl URL:${NC}    ${PTERO_URL}"
+    echo -e "  ${BOLD}Pterodactyl Key:${NC}    ${PTERO_KEY:0:10}...${PTERO_KEY: -4}"
+    echo ""
+    echo -e "  ${BOLD}Payment Methods:${NC}"
+    echo -e "    Stripe:     $(if [[ "$ENABLE_STRIPE" =~ ^[Yy]$ ]]; then echo -e "${GREEN}ENABLED${NC}"; else echo -e "${RED}DISABLED${NC}"; fi)"
+    echo -e "    PayPal:     $(if [[ "$ENABLE_PAYPAL" =~ ^[Yy]$ ]]; then echo -e "${GREEN}ENABLED${NC}"; else echo -e "${RED}DISABLED${NC}"; fi)"
+    echo -e "    Credits:    $(if [[ "$ENABLE_CREDITS" =~ ^[Yy]$ ]]; then echo -e "${GREEN}ENABLED${NC} (min: \$${MIN_DEPOSIT}, max: \$${MAX_DEPOSIT})${NC}"; else echo -e "${RED}DISABLED${NC}"; fi)"
+    echo ""
+    echo -e "  ${BOLD}SSL:${NC}                $(if [[ "$SETUP_SSL" =~ ^[Yy]$ ]]; then echo -e "${GREEN}Yes (Let's Encrypt)${NC}"; else echo -e "${YELLOW}No (configure later)${NC}"; fi)"
+    echo ""
+    echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+    read -p "  Proceed with installation? (Y/n): " CONFIRM
+    CONFIRM=${CONFIRM:-y}
+
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Installation cancelled.${NC}"
+        exit 0
+    fi
+}
+
 install_dependencies() {
-    echo -e "${YELLOW}[1/8] Installing dependencies...${NC}"
+    echo ""
+    echo -e "${YELLOW}[1/7] Installing dependencies...${NC}"
 
     if [ "$PKG_MANAGER" = "apt" ]; then
         export DEBIAN_FRONTEND=noninteractive
@@ -96,7 +229,7 @@ install_dependencies() {
 }
 
 setup_database() {
-    echo -e "${YELLOW}[2/8] Setting up database...${NC}"
+    echo -e "${YELLOW}[2/7] Setting up database...${NC}"
 
     DB_PASS=$(openssl rand -hex 16)
 
@@ -114,7 +247,7 @@ EOF
 }
 
 setup_php() {
-    echo -e "${YELLOW}[3/8] Configuring PHP...${NC}"
+    echo -e "${YELLOW}[3/7] Configuring PHP...${NC}"
 
     PHP_INI=$(find /etc/php -name "php.ini" -path "*/fpm/*" 2>/dev/null | head -1)
     if [ -z "$PHP_INI" ]; then
@@ -133,7 +266,7 @@ setup_php() {
 }
 
 install_panel() {
-    echo -e "${YELLOW}[4/8] Installing PteroBilling...${NC}"
+    echo -e "${YELLOW}[4/7] Installing PteroBilling...${NC}"
 
     mkdir -p "$INSTALL_DIR"
 
@@ -149,13 +282,14 @@ install_panel() {
 
     APP_KEY=$(openssl rand -hex 32)
     JWT_SECRET=$(openssl rand -hex 32)
+    DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')
 
     cat > .env <<EOF
 APP_NAME=PteroBilling
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=${PANEL_URL}
-APP_DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')
+APP_DOMAIN=${DOMAIN}
 APP_SECURE=true
 APP_KEY=${APP_KEY}
 
@@ -166,26 +300,65 @@ DB_USERNAME=${DB_USER}
 DB_PASSWORD=${DB_PASS}
 
 PTERODACTYL_URL=${PTERO_URL}
-PTERODACTYL_API_KEY=
+PTERODACTYL_API_KEY=${PTERO_KEY}
 
-STRIPE_KEY=
-STRIPE_WEBHOOK_SECRET=
-STRIPE_PUBLIC_KEY=
+STRIPE_KEY=${STRIPE_SECRET}
+STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK}
+STRIPE_PUBLIC_KEY=${STRIPE_PUBLIC}
 
-PAYPAL_CLIENT_ID=
-PAYPAL_CLIENT_SECRET=
-PAYPAL_MODE=live
+PAYPAL_CLIENT_ID=${PAYPAL_ID}
+PAYPAL_CLIENT_SECRET=${PAYPAL_SECRET}
+PAYPAL_MODE=${PAYPAL_MODE}
 
 MAIL_HOST=smtp.example.com
 MAIL_PORT=587
 MAIL_USERNAME=
 MAIL_PASSWORD=
 MAIL_ENCRYPTION=tls
-MAIL_FROM_ADDRESS=noreply@$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')
+MAIL_FROM_ADDRESS=noreply@${DOMAIN}
 MAIL_FROM_NAME=PteroBilling
 
 JWT_SECRET=${JWT_SECRET}
 EOF
+
+    cat > config/settings.php <<SETTINGS
+<?php
+return [
+    'site_name' => 'PteroBilling',
+    'site_url' => '${PANEL_URL}',
+    'custom_domain' => '${DOMAIN}',
+    'site_description' => 'Game Server Billing Panel',
+    'currency' => 'USD',
+    'currency_symbol' => '\$',
+    'min_deposit' => ${MIN_DEPOSIT}.00,
+    'max_deposit' => ${MAX_DEPOSIT}.00,
+    'default_server_term' => 30,
+    'allow_registration' => true,
+    'require_email_verification' => false,
+    'maintenance_mode' => false,
+    'theme' => 'default',
+    'sidebar_color' => '#1e3a8a',
+    'accent_color' => '#3b82f6',
+    'stripe_enabled' => $(if [[ "$ENABLE_STRIPE" =~ ^[Yy]$ ]]; then echo "true"; else echo "false"; fi),
+    'stripe_secret' => '${STRIPE_SECRET}',
+    'stripe_public' => '${STRIPE_PUBLIC}',
+    'stripe_webhook_secret' => '${STRIPE_WEBHOOK}',
+    'paypal_enabled' => $(if [[ "$ENABLE_PAYPAL" =~ ^[Yy]$ ]]; then echo "true"; else echo "false"; fi),
+    'paypal_client_id' => '${PAYPAL_ID}',
+    'paypal_client_secret' => '${PAYPAL_SECRET}',
+    'paypal_mode' => '${PAYPAL_MODE}',
+    'credits_enabled' => $(if [[ "$ENABLE_CREDITS" =~ ^[Yy]$ ]]; then echo "true"; else echo "false"; fi),
+    'ptero_url' => '${PTERO_URL}',
+    'ptero_api_key' => '${PTERO_KEY}',
+    'mail_host' => '',
+    'mail_port' => 587,
+    'mail_username' => '',
+    'mail_password' => '',
+    'mail_encryption' => 'tls',
+    'mail_from' => 'noreply@${DOMAIN}',
+    'mail_from_name' => 'PteroBilling',
+];
+SETTINGS
 
     php database/migrate.php 2>/dev/null || true
 
@@ -197,7 +370,7 @@ EOF
 }
 
 setup_nginx() {
-    echo -e "${YELLOW}[5/8] Configuring Nginx...${NC}"
+    echo -e "${YELLOW}[5/7] Configuring Nginx...${NC}"
 
     DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||g')
 
@@ -247,85 +420,79 @@ NGINX
 }
 
 setup_ssl() {
-    echo -e "${YELLOW}[6/8] Setting up SSL...${NC}"
-
-    DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||g')
-
-    echo -e "${CYAN}Would you like to set up SSL with Let's Encrypt?${NC}"
-    read -p "(y/n): " SETUP_SSL
+    echo -e "${YELLOW}[6/7] SSL Setup...${NC}"
 
     if [[ "$SETUP_SSL" =~ ^[Yy]$ ]]; then
+        DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||g')
         certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@${DOMAIN}" 2>/dev/null || {
-            echo -e "${YELLOW}[WARN] SSL setup failed. You can set it up later with:${NC}"
+            echo -e "${YELLOW}[WARN] SSL setup failed. Set up later with:${NC}"
             echo -e "  ${YELLOW}sudo certbot --nginx -d ${DOMAIN}${NC}"
         }
     else
         echo -e "${CYAN}[SKIP] SSL not configured. Set up later with:${NC}"
-        echo -e "  ${YELLOW}sudo certbot --nginx -d ${DOMAIN}${NC}"
+        echo -e "  ${YELLOW}sudo certbot --nginx -d $(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')${NC}"
     fi
 }
 
 setup_cron() {
-    echo -e "${YELLOW}[7/8] Setting up cron jobs...${NC}"
+    echo -e "${YELLOW}[7/7] Setting up cron jobs...${NC}"
 
     (crontab -l 2>/dev/null; echo "* * * * * cd ${INSTALL_DIR} && php artisan schedule:run >> /dev/null 2>&1") | crontab - 2>/dev/null || true
 
     echo -e "${GREEN}[OK] Cron jobs configured.${NC}"
 }
 
-print_summary() {
+print_final_summary() {
+    DOMAIN=$(echo ${PANEL_URL} | sed 's|https://||' | sed 's|http://||' | sed 's|/$||')
+
     echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║         PteroBilling Installation Complete!              ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${GREEN}║           PteroBilling Installation Complete!                ║${NC}"
+    echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${CYAN}Panel URL:${NC}    ${PANEL_URL}"
-    echo -e "  ${CYAN}Install Dir:${NC}  ${INSTALL_DIR}"
+    echo -e "  ${BOLD}${CYAN}Panel URL:${NC}        ${PANEL_URL}"
+    echo -e "  ${BOLD}${CYAN}Install Directory:${NC} ${INSTALL_DIR}"
     echo ""
-    echo -e "  ${YELLOW}Database:${NC}"
+    echo -e "  ${BOLD}${YELLOW}Database Credentials:${NC}"
     echo -e "    Host:     localhost"
     echo -e "    Database: ${DB_NAME}"
     echo -e "    Username: ${DB_USER}"
-    echo -e "    Password: ${DB_PASS}"
+    echo -e "    Password: ${BOLD}${DB_PASS}${NC}"
     echo ""
-    echo -e "  ${YELLOW}Next Steps:${NC}"
-    echo -e "  ${GREEN}1.${NC} Visit ${CYAN}${PANEL_URL}${NC} in your browser"
-    echo -e "  ${GREEN}2.${NC} The Setup Wizard will guide you through:"
-    echo -e "      - Custom domain configuration"
-    echo -e "      - Pterodactyl API connection"
-    echo -e "      - Stripe payment setup"
-    echo -e "      - PayPal payment setup"
-    echo -e "  ${GREEN}3.${NC} Create your admin account"
-    echo -e "  ${GREEN}4.${NC} Create server plans and start selling!"
+    echo -e "  ${BOLD}${YELLOW}Enabled Payment Methods:${NC}"
+    [[ "$ENABLE_STRIPE" =~ ^[Yy]$ ]] && echo -e "    ${GREEN}✓${NC} Stripe (Credit/Debit Cards)"
+    [[ "$ENABLE_PAYPAL" =~ ^[Yy]$ ]] && echo -e "    ${GREEN}✓${NC} PayPal"
+    [[ "$ENABLE_CREDITS" =~ ^[Yy]$ ]] && echo -e "    ${GREEN}✓${NC} Credit System (min: \$${MIN_DEPOSIT}, max: \$${MAX_DEPOSIT})"
     echo ""
-    echo -e "  ${YELLOW}Webhook URLs (for payment providers):${NC}"
-    echo -e "    Stripe: ${PANEL_URL}/api/v1/payment/stripe"
-    echo -e "    PayPal: ${PANEL_URL}/api/v1/payment/paypal"
+    echo -e "  ${BOLD}${YELLOW}What's Next:${NC}"
+    echo -e "  ${GREEN}1.${NC} Visit ${BOLD}${PANEL_URL}${NC} in your browser"
+    echo -e "  ${GREEN}2.${NC} Register your admin account (first user is auto-admin)"
+    echo -e "  ${GREEN}3.${NC} Go to ${BOLD}Admin > Settings${NC} to manage everything"
+    echo -e "  ${GREEN}4.${NC} Create server plans in ${BOLD}Admin > Plans${NC}"
+    echo -e "  ${GREEN}5.${NC} Start selling!"
     echo ""
-    echo -e "${GREEN}══════════════════════════════════════════════════════════${NC}"
+
+    if [[ "$ENABLE_STRIPE" =~ ^[Yy]$ ]] || [[ "$ENABLE_PAYPAL" =~ ^[Yy]$ ]]; then
+        echo -e "  ${BOLD}${YELLOW}Webhook URLs (configure in your payment provider):${NC}"
+        [[ "$ENABLE_STRIPE" =~ ^[Yy]$ ]] && echo -e "    Stripe: ${PANEL_URL}/api/v1/payment/stripe"
+        [[ "$ENABLE_PAYPAL" =~ ^[Yy]$ ]] && echo -e "    PayPal: ${PANEL_URL}/api/v1/payment/paypal"
+        echo ""
+    fi
+
+    echo -e "  ${BOLD}${YELLOW}Admin Settings URL:${NC}"
+    echo -e "    ${PANEL_URL}/admin/settings"
+    echo ""
+    echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════════════${NC}"
 }
 
 main() {
     print_banner
     check_root
     detect_os
-
-    echo ""
-    echo -e "${CYAN}Please provide the following information:${NC}"
-    echo -e "${YELLOW}(You can configure payment providers later via the Setup Wizard)${NC}"
-    echo ""
-
-    read -p "Panel URL (e.g., https://billing.example.com): " PANEL_URL
-    read -p "Pterodactyl Panel URL (e.g., https://panel.example.com): " PTERO_URL
-
-    if [ -z "$PANEL_URL" ] || [ -z "$PTERO_URL" ]; then
-        echo -e "${RED}[ERROR] All fields are required.${NC}"
-        exit 1
-    fi
+    collect_information
 
     echo ""
     echo -e "${CYAN}Starting installation...${NC}"
-    echo ""
 
     install_dependencies
     setup_database
@@ -334,7 +501,7 @@ main() {
     setup_nginx
     setup_ssl
     setup_cron
-    print_summary
+    print_final_summary
 }
 
 main "$@"

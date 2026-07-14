@@ -79,6 +79,7 @@ class Router
             $group->get('/invoices', [InvoiceController::class, 'index'])->setName('admin.invoices');
             $group->get('/settings', [SettingsController::class, 'index'])->setName('admin.settings');
             $group->put('/settings', [SettingsController::class, 'update']);
+            $group->get('/settings/sync-ptero', [SettingsController::class, 'syncPterodactyl'])->setName('admin.syncPterodactyl');
             $group->get('/api-keys', [SettingsController::class, 'apiKeys'])->setName('admin.apiKeys');
             $group->post('/api-keys', [SettingsController::class, 'createApiKey']);
             $group->delete('/api-keys/{id}', [SettingsController::class, 'deleteApiKey']);
